@@ -1,12 +1,12 @@
 package main
 
-//go:generate rice embed-go
 import (
 	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
 	"html/template"
+	"io/fs"
 	"net/http"
 	"os"
 	"os/signal"
@@ -14,7 +14,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	rice "github.com/GeertJohan/go.rice"
+	"embed"
+
 	"github.com/golang/glog"
 	"github.com/gorilla/mux"
 
@@ -22,6 +23,9 @@ import (
 	"github.com/heatxsink/go-hue/portal"
 	"github.com/heatxsink/hued/factory"
 )
+
+//go:embed www
+var data embed.FS
 
 var (
 	hueUsername  string
@@ -76,7 +80,12 @@ func loadRouter() *mux.Router {
 	r.HandleFunc("/api/1/group", groupV1).Name("api_group").Methods("GET")
 	r.HandleFunc("/api/1/status", statusV1).Name("api_status").Methods("GET")
 	r.HandleFunc("/", rootV1).Name("root").Methods("GET")
-	fs := http.FileServer(rice.MustFindBox("www/").HTTPBox())
+
+	wwwFiles, err := fs.Sub(data, "www")
+	if err != nil {
+		panic(err)
+	}
+	fs := http.FileServer(http.FS(wwwFiles))
 	sh := http.StripPrefix("/", blackholeHandler(fs))
 	r.PathPrefix("/").Handler(sh)
 	return r
@@ -93,25 +102,17 @@ func blackholeHandler(next http.Handler) http.Handler {
 }
 
 func loadTemplates() (map[string]*template.Template, error) {
-	box, err := rice.FindBox("www/")
+	wwwFiles, err := fs.Sub(data, "www")
 	if err != nil {
 		return nil, err
 	}
 	templates := make(map[string]*template.Template)
-	templateString, err := box.String("templates/home.html")
-	if err != nil {
-		return nil, err
-	}
-	tmpl, err := template.New("home.html").Parse(templateString)
+	tmpl, err := template.New("home.html").ParseFS(wwwFiles, "templates/home.html")
 	if err != nil {
 		return nil, err
 	}
 	templates["home.html"] = tmpl
-	templateString1, err := box.String("templates/phone.html")
-	if err != nil {
-		return nil, err
-	}
-	tmpl1, err := template.New("phone.html").Parse(templateString1)
+	tmpl1, err := template.New("phone.html").ParseFS(wwwFiles, "templates/phone.html")
 	if err != nil {
 		return nil, err
 	}
